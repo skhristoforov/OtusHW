@@ -360,7 +360,7 @@ index 318c0bb..642b541 100644
              case try_stmt:
                  return ast_for_try_stmt(c, ch);
 diff --git a/Python/compile.c b/Python/compile.c
-index 9c9b236..aa6d5e1 100644
+index 9c9b236..c0ebcdb 100644
 --- a/Python/compile.c
 +++ b/Python/compile.c
 @@ -1686,6 +1686,46 @@ compiler_while(struct compiler *c, stmt_ty s)
@@ -419,15 +419,6 @@ index 9c9b236..aa6d5e1 100644
      case If_kind:
          return compiler_if(c, s);
      case Raise_kind:
-@@ -2353,7 +2395,7 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
-     }
- 
-     /* XXX Leave assert here, but handle __doc__ and the like better */
--    assert(scope || PyString_AS_STRING(name)[0] == '_');
-+    //assert(scope || PyString_AS_STRING(name)[0] == '_');
- 
-     switch (optype) {
-     case OP_DEREF:
 diff --git a/Python/graminit.c b/Python/graminit.c
 index 5db6bb5..9734069 100644
 --- a/Python/graminit.c
@@ -2423,3 +2414,18 @@ index 5db6bb5..9734069 100644
 +    {171, labels},
      256
  };
+diff --git a/Python/symtable.c b/Python/symtable.c
+index 3b4247b..30cc8bd 100644
+--- a/Python/symtable.c
++++ b/Python/symtable.c
+@@ -1076,6 +1076,10 @@ symtable_visit_stmt(struct symtable *st, stmt_ty s)
+         if (s->v.While.orelse)
+             VISIT_SEQ(st, stmt, s->v.While.orelse);
+         break;
++    case Until_kind:
++        VISIT(st, expr, s->v.Until.test);
++        VISIT_SEQ(st, stmt, s->v.Until.body);
++        break;
+     case If_kind:
+         /* XXX if 0: and lookup_yield() hacks */
+         VISIT(st, expr, s->v.If.test);
