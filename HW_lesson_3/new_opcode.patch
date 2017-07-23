@@ -1,91 +1,86 @@
 diff --git a/Include/opcode.h b/Include/opcode.h
-index 99c3b0e..f0b092e 100644
+index 9ed5487..e6d1259 100644
 --- a/Include/opcode.h
 +++ b/Include/opcode.h
-@@ -128,6 +128,7 @@ extern "C" {
- #define BUILD_TUPLE_UNPACK_WITH_CALL 158
- #define LOAD_METHOD             160
- #define CALL_METHOD             161
-+#define LOAD_BEST		162
+@@ -158,7 +158,7 @@ extern "C" {
  
- /* EXCEPT_HANDLER is a special, implicit block type which is created when
-    entering an except handler. It is not an opcode but we define it here
+ #define SET_ADD         146
+ #define MAP_ADD         147
+-
++#define LOAD_BEST	148
+ 
+ enum cmp_op {PyCmp_LT=Py_LT, PyCmp_LE=Py_LE, PyCmp_EQ=Py_EQ, PyCmp_NE=Py_NE, PyCmp_GT=Py_GT, PyCmp_GE=Py_GE,
+ 	     PyCmp_IN, PyCmp_NOT_IN, PyCmp_IS, PyCmp_IS_NOT, PyCmp_EXC_MATCH, PyCmp_BAD};
 diff --git a/Lib/opcode.py b/Lib/opcode.py
-index dffb38c..1513081 100644
+index e403365..7ff0b5e 100644
 --- a/Lib/opcode.py
 +++ b/Lib/opcode.py
-@@ -215,4 +215,8 @@ def_op('BUILD_TUPLE_UNPACK_WITH_CALL', 158)
- name_op('LOAD_METHOD', 160)
- def_op('CALL_METHOD', 161)
+@@ -188,5 +188,6 @@ def_op('EXTENDED_ARG', 145)
+ EXTENDED_ARG = 145
+ def_op('SET_ADD', 146)
+ def_op('MAP_ADD', 147)
++def_op('LOAD_BEST', 148)
  
-+def_op('LOAD_BEST', 162)
-+hasconst.append(162)
-+haslocal.append(162)
-+
  del def_op, name_op, jrel_op, jabs_op
 diff --git a/Python/ceval.c b/Python/ceval.c
-index 59fc070..77e2dbf 100644
+index 4e4adc2..714281e 100644
 --- a/Python/ceval.c
 +++ b/Python/ceval.c
-@@ -1218,6 +1218,25 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
-             PUSH(value);
+@@ -1210,6 +1210,24 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
              FAST_DISPATCH();
          }
-+	
-+	PREDICTED(LOAD_BEST)
-+	TARGET(LOAD_BEST) {
-+	    PyObject *value = GETLOCAL(oparg);
-+            if (value == NULL) {
-+                format_exc_check_arg(PyExc_UnboundLocalError,
-+                                     UNBOUNDLOCAL_ERROR_MSG,
-+                                     PyTuple_GetItem(co->co_varnames, oparg));
-+                goto error;
-+            }
-+            Py_INCREF(value);
-+            PUSH(value);
-+	    
-+	    PyObject *value_const = GETITEM(consts, oparg);
-+            Py_INCREF(value_const);
-+            PUSH(value_const);
-+		
-+            FAST_DISPATCH();
-+	}	
  
-         PREDICTED(STORE_FAST);
-         TARGET(STORE_FAST) {
++       TARGET(LOAD_BEST)
++       {
++           x = GETLOCAL(0);
++           if (x != NULL) {
++               Py_INCREF(x);
++               PUSH(x);
++               x = GETITEM(consts, oparg);
++               Py_INCREF(x);
++               PUSH(x);
++               FAST_DISPATCH();
++           }
++           format_exc_check_arg(PyExc_UnboundLocalError,
++               UNBOUNDLOCAL_ERROR_MSG,
++               PyTuple_GetItem(co->co_varnames, oparg));
++           break;
++        }
++
++
+         TARGET(LOAD_FAST)
+         {
+             x = GETLOCAL(oparg);
 diff --git a/Python/opcode_targets.h b/Python/opcode_targets.h
-index 567f872..6b4ba0c 100644
+index 95eb127..39f4fd8 100644
 --- a/Python/opcode_targets.h
 +++ b/Python/opcode_targets.h
-@@ -161,7 +161,7 @@ static void *opcode_targets[256] = {
-     &&_unknown_opcode,
-     &&TARGET_LOAD_METHOD,
-     &&TARGET_CALL_METHOD,
+@@ -147,7 +147,7 @@ static void *opcode_targets[256] = {
+     &&TARGET_EXTENDED_ARG,
+     &&TARGET_SET_ADD,
+     &&TARGET_MAP_ADD,
 -    &&_unknown_opcode,
 +    &&TARGET_LOAD_BEST,
      &&_unknown_opcode,
      &&_unknown_opcode,
      &&_unknown_opcode,
 diff --git a/Python/peephole.c b/Python/peephole.c
-index 1bee710..8d6b5af 100644
+index 11f6f88..d375ae7 100644
 --- a/Python/peephole.c
 +++ b/Python/peephole.c
-@@ -520,6 +520,18 @@ PyCode_Optimize(PyObject *code, PyObject* consts, PyObject *names,
-                 CONST_STACK_POP(1);
+@@ -425,6 +425,15 @@ PyCode_Optimize(PyObject *code, PyObject* consts, PyObject *names,
+                 cumlc = 0;
                  break;
  
-+	    case LOAD_BEST:
-+                CONST_STACK_PUSH_OP(i);
-+                if (nextop != POP_JUMP_IF_FALSE  ||
-+                    !ISBASICBLOCK(blocks, op_start, i + 1)  ||
-+                    !PyObject_IsTrue(PyList_GET_ITEM(consts, get_arg(codestr, i))))
-+                    break;
-+                fill_nops(codestr, op_start, nexti + 1);
-+                CONST_STACK_POP(1);
++            case LOAD_FAST:
++                j = GETARG(codestr, i);
++                if (codestr[i+3] == LOAD_CONST && j == 0)
++                {
++                    codestr[i+3] = LOAD_BEST;
++                    memset(codestr+i, NOP, 3);
++                }
 +                break;
 +
-+	
-+
                  /* Try to fold tuples of constants (includes a case for lists
-                    and sets which are only used for "in" and "not in" tests).
+                    which are only used for "in" and "not in" tests).
                     Skip over BUILD_SEQN 1 UNPACK_SEQN 1.
