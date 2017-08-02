@@ -4,7 +4,7 @@ import time
 
 
 logging.basicConfig(
-    format='%(levelname)-8s [%(asctime)s] %(message)s',
+    format='[%(asctime)s]\t%(levelname)-8s\t%(message)s',
     level=logging.DEBUG
 )
 
@@ -22,30 +22,30 @@ def _process_logger(before=None, after=None):
     return wrapper
 
 
-class TimeoutWaiter:
-
-    def __init__(self, start_value=0., velocity=2.):
-        self.start = start_value
-        self.velocity = velocity
-        self.exec_counter = 0
-
-    def __call__(self, *args, **kwargs):
-        result = self.start + self.velocity ** self.exec_counter
-        self.exec_counter += 1
-        return result
-
-    def reset(self):
-        self.exec_counter = 0
-
-    def get_current_value(self):
-        return self.start + self.velocity ** self.exec_counter
-
-
 class PyServerClient:
+
+    class TimeoutWaiter:
+        """Timeout waiter class. Calculates timeout as start ** pow.
+        Then Increments pow"""
+        def __init__(self, start=-1, pow=2.):
+            self.pow = pow
+            self.counter = start
+
+        def __call__(self, *args, **kwargs):
+            result = self.pow ** self.counter
+            self.counter += 1
+            return result
+
+        def reset(self):
+            self.counter = 0
+
+        def get_current_value(self):
+            return self.pow ** self.counter
 
     @_process_logger(before='Creating PyServerClient')
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.terminator = '\r\n\r\n'
 
     def connect(self, host, port, attempts=5, timeout_fun=TimeoutWaiter()):
         logging.info('Connecting to {}:{}'.format(host, port))
@@ -74,9 +74,20 @@ class PyServerClient:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((host, port))
 
-    def send(self, message):
-        logging.info('Sending message "{}"'.format(message))
+    def send(self, raw):
+        """Send data string method"""
+        message = raw + self.terminator
+        logging.info('Sending message "{}"'.format(raw))
         self.socket.sendall(message.encode('utf-8'))
+
+    def receive(self):
+        """Receive data string method"""
+        data = ''
+        while True:
+            data += self.socket.recv(2048).decode('utf-8')
+            if self.terminator in data:
+                break
+        return data
 
     def close_connection(self):
         self.socket.close()
@@ -85,8 +96,11 @@ class PyServerClient:
 if __name__ == '__main__':
     client = PyServerClient()
 
+    output = []
     for i in range(5):
-        client.connect('127.0.0.1', 9000)
+        client.connect('127.0.0.1', 8080)
         client.send('Hello {}'.format(i))
-        print(client.socket.recv(2048).decode('utf-8'))
+        output.append(client.receive())
         client.close_connection()
+    for val in output:
+        print(val)
