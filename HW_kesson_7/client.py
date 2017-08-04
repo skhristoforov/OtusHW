@@ -1,6 +1,8 @@
 import socket
 import logging
 import time
+import sys
+from HW_kesson_7 import reqresp as rr
 
 
 logging.basicConfig(
@@ -46,6 +48,7 @@ class PyServerClient:
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.terminator = '\r\n\r\n'
+        self.chunk_size = 2048
 
     def connect(self, host, port, attempts=5, timeout_fun=TimeoutWaiter()):
         logging.info('Connecting to {}:{}'.format(host, port))
@@ -74,20 +77,19 @@ class PyServerClient:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((host, port))
 
-    def send(self, raw):
+    def send_all(self, message):
         """Send data string method"""
-        message = raw + self.terminator
-        logging.info('Sending message "{}"'.format(raw))
-        self.socket.sendall(message.encode('utf-8'))
+        logging.info('Sending message "{}"'.format(message))
+        self.socket.sendall((message + self.terminator).encode('utf-8'))
 
-    def receive(self):
+    def receive_all(self):
         """Receive data string method"""
         data = ''
         while True:
-            data += self.socket.recv(2048).decode('utf-8')
+            data += self.socket.recv(self.chunk_size).decode('utf-8')
             if self.terminator in data:
                 break
-        return data
+        return data[:-4]
 
     def close_connection(self):
         self.socket.close()
@@ -96,11 +98,21 @@ class PyServerClient:
 if __name__ == '__main__':
     client = PyServerClient()
 
-    output = []
+    server_host = '127.0.0.1'
+    server_port = 8080
+
+    response = []
     for i in range(5):
-        client.connect('127.0.0.1', 8080)
-        client.send('Hello {}'.format(i))
-        output.append(client.receive())
+        try:
+            client.connect(server_host, server_port)
+        except Exception as e:
+            print(e)
+            sys.exit()
+
+        request = rr.GetRequest(server_host, body='//')
+
+        client.send_all(str(request))
+        response.append(client.receive_all())
         client.close_connection()
-    for val in output:
+    for val in response:
         print(val)
