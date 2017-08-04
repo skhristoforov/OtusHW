@@ -13,7 +13,7 @@ class BaseAnswer:
             500: 'HTTP/1.1 500 Internal Server Error'
         }
         self.content_types = {
-            'txt': 'text',
+            'txt': 'text/plain',
             'html': 'text/html',
             'css': 'text/css',
             'js': 'text/javascript"',
